@@ -91,15 +91,15 @@ int process_tcp_packet(proto_mod *handler, proto_ctx *ctx, packet *p) {
     if(r != R_NOT_FOUND)
       ABORT(r);
 
-    if((p->tcp->th_flags & TH_SYN) != TH_SYN) {
-      DBG((0, "TCP: rejecting packet from unknown connection, seq: %u\n",
-           ntohl(p->tcp->th_seq)));
-      return 0;
-    }
-
+    DBG((0, "TCP: no existing connection, creating connection (seq: %u)\n",
+         ntohl(p->tcp->th_seq)));
     if((r = new_connection(handler, ctx, p, &conn)))
       ABORT(r);
-    return 0;
+    /* Determine direction for this packet on the new connection */
+    if((r = tcp_find_conn(&conn, &direction, &p->i_addr.so_st,
+                          ntohs(p->tcp->th_sport), &p->r_addr.so_st,
+                          ntohs(p->tcp->th_dport))))
+      ABORT(r);
   }
 
   stream = direction == DIR_R2I ? &conn->r2i : &conn->i2r;
@@ -165,22 +165,35 @@ static int new_connection(proto_mod *handler,
   int r, _status;
   tcp_conn *conn = 0;
 
-  if((p->tcp->th_flags & (TH_SYN | TH_ACK)) == TH_SYN) {
+  if(p->tcp->th_flags & TH_SYN) {
+    if((p->tcp->th_flags & TH_ACK) == 0) {
+      /* SYN only: initiator starts connection */
+      if((r = tcp_create_conn(&conn, &p->i_addr.so_st, ntohs(p->tcp->th_sport),
+                              &p->r_addr.so_st, ntohs(p->tcp->th_dport))))
+        ABORT(r);
+      DBG((0, "SYN1 seq: %u", ntohl(p->tcp->th_seq)));
+      conn->i2r.seq = ntohl(p->tcp->th_seq) + 1;
+      conn->i2r.ack = ntohl(p->tcp->th_ack) + 1;
+      conn->state = TCP_STATE_SYN1;
+    } else {
+      /* SYN+ACK first: responder seen first */
+      if((r = tcp_create_conn(&conn, &p->r_addr.so_st, ntohs(p->tcp->th_dport),
+                              &p->i_addr.so_st, ntohs(p->tcp->th_sport))))
+        ABORT(r);
+      DBG((0, "SYN2 seq: %u", ntohl(p->tcp->th_seq)));
+      conn->r2i.seq = ntohl(p->tcp->th_seq) + 1;
+      conn->r2i.ack = ntohl(p->tcp->th_ack) + 1;
+      conn->state = TCP_STATE_SYN2;
+    }
+  } else {
+    /* No SYN flag: treat as established connection */
     if((r = tcp_create_conn(&conn, &p->i_addr.so_st, ntohs(p->tcp->th_sport),
                             &p->r_addr.so_st, ntohs(p->tcp->th_dport))))
       ABORT(r);
-    DBG((0, "SYN1 seq: %u", ntohl(p->tcp->th_seq)));
-    conn->i2r.seq = ntohl(p->tcp->th_seq) + 1;
-    conn->i2r.ack = ntohl(p->tcp->th_ack) + 1;
-    conn->state = TCP_STATE_SYN1;
-  } else {  // SYN&ACK comes first somehow
-    if((r = tcp_create_conn(&conn, &p->r_addr.so_st, ntohs(p->tcp->th_dport),
-                            &p->i_addr.so_st, ntohs(p->tcp->th_sport))))
-      ABORT(r);
-    DBG((0, "SYN2 seq: %u", ntohl(p->tcp->th_seq)));
-    conn->r2i.seq = ntohl(p->tcp->th_seq) + 1;
-    conn->r2i.ack = ntohl(p->tcp->th_ack) + 1;
-    conn->state = TCP_STATE_SYN2;
+    DBG((0, "No SYN flag, treating as established (seq: %u)", ntohl(p->tcp->th_seq)));
+    conn->i2r.seq = ntohl(p->tcp->th_seq);
+    conn->i2r.ack = ntohl(p->tcp->th_ack);
+    conn->state = TCP_STATE_ESTABLISHED;
   }
   memcpy(&conn->start_time, &p->ts, sizeof(struct timeval));
   memcpy(&conn->last_seen_time, &p->ts, sizeof(struct timeval));
