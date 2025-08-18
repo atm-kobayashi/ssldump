@@ -191,8 +191,17 @@ static int new_connection(proto_mod *handler,
                             &p->r_addr.so_st, ntohs(p->tcp->th_dport))))
       ABORT(r);
     DBG((0, "No SYN flag, treating as established (seq: %u)", ntohl(p->tcp->th_seq)));
+    /*
+     * When the capture starts mid-stream (no SYN seen), initialize both
+     * directions' expected sequence numbers from this packet. This avoids
+     * queuing all responder->initiator segments as out-of-order (stream->seq
+     * would otherwise remain 0 for the opposite direction), which prevented
+     * server responses from ever reaching the analyzer/logger.
+     */
     conn->i2r.seq = ntohl(p->tcp->th_seq);
     conn->i2r.ack = ntohl(p->tcp->th_ack);
+    conn->r2i.seq = ntohl(p->tcp->th_ack);
+    conn->r2i.ack = ntohl(p->tcp->th_seq);
     conn->state = TCP_STATE_ESTABLISHED;
   }
   memcpy(&conn->start_time, &p->ts, sizeof(struct timeval));
