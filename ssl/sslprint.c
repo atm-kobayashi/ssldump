@@ -59,6 +59,60 @@ extern decoder HandshakeType_decoder[];
 #define BYTES_NEEDED(x) \
   (x <= 255) ? 1 : ((x <= (1 << 16)) ? 2 : (x <= (1 << 24) ? 3 : 4))
 
+static int looks_like_tls_handshake(const Data *d) {
+  unsigned char hs_type;
+
+  if(d->len == 0)
+    return 0;
+
+  if(d->data[0] != 0x16)
+    return 0;
+
+  if(d->len < 2)
+    return 1; /* not enough data yet, stay in TLS path */
+
+  if(d->data[1] != 0x03)
+    return 0;
+
+  if(d->len < 6)
+    return 1; /* header present, body may follow */
+
+  hs_type = d->data[5];
+  switch(hs_type) {
+    case 0x00: /* hello_request */
+    case 0x01: /* client_hello */
+    case 0x02: /* server_hello */
+    case 0x03: /* hello_verify_request */
+    case 0x04: /* new_session_ticket */
+    case 0x05: /* end_of_early_data */
+    case 0x06: /* hello_retry_request */
+    case 0x07: /* hello_retry_request (DTLS) */
+    case 0x08: /* encrypted_extensions */
+    case 0x0b: /* certificate */
+    case 0x0c: /* server_key_exchange */
+    case 0x0d: /* certificate_request */
+    case 0x0e: /* server_hello_done */
+    case 0x0f: /* certificate_verify */
+    case 0x10: /* client_key_exchange */
+    case 0x14: /* finished */
+    case 0x15: /* certificate_url */
+    case 0x16: /* certificate_status */
+    case 0x17: /* supplemental_data */
+    case 0x18: /* key_update / compressed_certificate */
+    case 0x19:
+    case 0x1a:
+    case 0x1b:
+    case 0x1c:
+    case 0x1d:
+    case 0x1e:
+    case 0x1f:
+    case 0xfe: /* message_hash */
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 int process_beginning_plaintext(ssl_obj *ssl, segment *seg, int direction) {
   Data d;
   if(seg->len == 0)
@@ -67,8 +121,8 @@ int process_beginning_plaintext(ssl_obj *ssl, segment *seg, int direction) {
   d.data = seg->data;
   d.len = seg->len;
 
-  /* this looks like SSL data. Ignore it*/
-  if(d.data[0] == 0x16)
+  /* only hand over to TLS decoding when the header really matches TLS */
+  if(looks_like_tls_handshake(&d))
     return SSL_BAD_CONTENT_TYPE;
 
   if(logger)

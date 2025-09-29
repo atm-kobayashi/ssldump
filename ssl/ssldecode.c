@@ -1304,7 +1304,8 @@ static int ssl_read_key_log_file(ssl_obj *ssl, ssl_decoder *d) {
   int r = -1;
   int _status, n, i;
   size_t l = 0;
-  char *line, *d_client_random, *label, *client_random, *secret;
+  char *line = NULL;
+  char *d_client_random, *label, *client_random, *secret;
   if(ssl->version == TLSV13_VERSION &&
      !ssl->cs)  // ssl->cs is not set when called from
                 // ssl_process_client_session_id
@@ -1364,6 +1365,7 @@ static int ssl_read_key_log_file(ssl_obj *ssl, ssl_decoder *d) {
   }
   _status = 0;
 abort:
+  free(line);
   if(d->ctx->ssl_key_log_file != NULL)
     fseek(d->ctx->ssl_key_log_file, 0, SEEK_SET);
   return _status;
