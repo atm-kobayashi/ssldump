@@ -1310,6 +1310,8 @@ static int ssl_read_key_log_file(ssl_obj *ssl, ssl_decoder *d) {
      !ssl->cs)  // ssl->cs is not set when called from
                 // ssl_process_client_session_id
     ABORT(r);
+  if(!d->client_random || !d->client_random->data || d->client_random->len == 0)
+    ABORT(r);
   if(!(d_client_random = malloc((d->client_random->len * 2) + 1)))
     ABORT(r);
   for(i = 0; i < d->client_random->len; i++)
