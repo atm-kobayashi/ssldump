@@ -93,6 +93,16 @@ int process_tcp_packet(proto_mod *handler, proto_ctx *ctx, packet *p) {
 
     DBG((0, "TCP: no existing connection, creating connection (seq: %u)\n",
          ntohl(p->tcp->th_seq)));
+    if((p->tcp->th_flags & TH_SYN) == 0) {
+      long payload_len = p->len - p->tcp->th_off * 4;
+      /*
+       * Ignore stray pure ACKs for unknown connections. Without this, the
+       * final ACK of a completed flow can resurrect a phantom connection and
+       * block a later real SYN that reuses the same 4-tuple.
+       */
+      if(payload_len == 0 && (p->tcp->th_flags & (TH_FIN | TH_RST)) == 0)
+        return 0;
+    }
     if((r = new_connection(handler, ctx, p, &conn)))
       ABORT(r);
     /* Determine direction for this packet on the new connection */
