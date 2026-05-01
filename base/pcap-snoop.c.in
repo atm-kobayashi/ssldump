@@ -313,6 +313,16 @@ void pcap_cb(u_char *ptr, const struct pcap_pkthdr *hdr, const u_char *data) {
       len -= 16;
       break;
 #endif
+#ifdef DLT_LINUX_SLL2
+    case DLT_LINUX_SLL2:
+      /* SLL2 header is 20 bytes; EtherType is at offset 0, unlike SLL where it is at offset 14 */
+      if(len < 20)
+        return;
+      type = ntohs(*(u_int16_t *)data);
+      data += 20;
+      len -= 20;
+      break;
+#endif
 #ifdef DLT_IPNET
     case DLT_IPNET:
       data += 24;
